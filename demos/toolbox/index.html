@@ -78,7 +78,9 @@
       <block type="controls_flow_statements"></block>
     </category>
     <category name="Math">
-      <block type="math_number"></block>
+      <block type="math_number">
+        <field name="NUM">123</field>
+      </block>
       <block type="math_arithmetic"></block>
       <block type="math_single"></block>
       <block type="math_trig"></block>
@@ -334,7 +336,7 @@
   </xml>
 
   <script>
-    var workspace = Blockly.inject('blocklyDiv',
+    var demoWorkspace = Blockly.inject('blocklyDiv',
         {media: '../../media/',
          toolbox: document.getElementById('toolbox')});
   </script>

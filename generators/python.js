@@ -44,23 +44,44 @@ Blockly.Python = new Blockly.Generator('Python');
  */
 Blockly.Python.addReservedWords(
     // import keyword
-    // print ','.join(keyword.kwlist)
-    // http://docs.python.org/reference/lexical_analysis.html#keywords
-    'and,as,assert,break,class,continue,def,del,elif,else,except,exec,' +
-    'finally,for,from,global,if,import,in,is,lambda,not,or,pass,print,raise,' +
-    'return,try,while,with,yield,' +
-    //http://docs.python.org/library/constants.html
-    'True,False,None,NotImplemented,Ellipsis,__debug__,quit,exit,copyright,' +
-    'license,credits,' +
-    // http://docs.python.org/library/functions.html
-    'abs,divmod,input,open,staticmethod,all,enumerate,int,ord,str,any,eval,' +
-    'isinstance,pow,sum,basestring,execfile,issubclass,print,super,bin,file,' +
-    'iter,property,tuple,bool,filter,len,range,type,bytearray,float,list,' +
-    'raw_input,unichr,callable,format,locals,reduce,unicode,chr,frozenset,' +
-    'long,reload,vars,classmethod,getattr,map,repr,xrange,cmp,globals,max,' +
-    'reversed,zip,compile,hasattr,memoryview,round,__import__,complex,hash,' +
-    'min,set,apply,delattr,help,next,setattr,buffer,dict,hex,object,slice,' +
-    'coerce,dir,id,oct,sorted,intern'
+    // print(','.join(sorted(keyword.kwlist)))
+    // https://docs.python.org/3/reference/lexical_analysis.html#keywords
+    // https://docs.python.org/2/reference/lexical_analysis.html#keywords
+    'False,None,True,and,as,assert,break,class,continue,def,del,elif,else,' +
+    'except,exec,finally,for,from,global,if,import,in,is,lambda,nonlocal,not,' +
+    'or,pass,print,raise,return,try,while,with,yield,' +
+    // https://docs.python.org/3/library/constants.html
+    // https://docs.python.org/2/library/constants.html
+    'NotImplemented,Ellipsis,__debug__,quit,exit,copyright,license,credits,' +
+    // >>> print(','.join(sorted(dir(__builtins__))))
+    // https://docs.python.org/3/library/functions.html
+    // https://docs.python.org/2/library/functions.html
+    'ArithmeticError,AssertionError,AttributeError,BaseException,' +
+    'BlockingIOError,BrokenPipeError,BufferError,BytesWarning,' +
+    'ChildProcessError,ConnectionAbortedError,ConnectionError,' +
+    'ConnectionRefusedError,ConnectionResetError,DeprecationWarning,EOFError,' +
+    'Ellipsis,EnvironmentError,Exception,FileExistsError,FileNotFoundError,' +
+    'FloatingPointError,FutureWarning,GeneratorExit,IOError,ImportError,' +
+    'ImportWarning,IndentationError,IndexError,InterruptedError,' +
+    'IsADirectoryError,KeyError,KeyboardInterrupt,LookupError,MemoryError,' +
+    'ModuleNotFoundError,NameError,NotADirectoryError,NotImplemented,' +
+    'NotImplementedError,OSError,OverflowError,PendingDeprecationWarning,' +
+    'PermissionError,ProcessLookupError,RecursionError,ReferenceError,' +
+    'ResourceWarning,RuntimeError,RuntimeWarning,StandardError,' +
+    'StopAsyncIteration,StopIteration,SyntaxError,SyntaxWarning,SystemError,' +
+    'SystemExit,TabError,TimeoutError,TypeError,UnboundLocalError,' +
+    'UnicodeDecodeError,UnicodeEncodeError,UnicodeError,' +
+    'UnicodeTranslateError,UnicodeWarning,UserWarning,ValueError,Warning,' +
+    'ZeroDivisionError,_,__build_class__,__debug__,__doc__,__import__,' +
+    '__loader__,__name__,__package__,__spec__,abs,all,any,apply,ascii,' +
+    'basestring,bin,bool,buffer,bytearray,bytes,callable,chr,classmethod,cmp,' +
+    'coerce,compile,complex,copyright,credits,delattr,dict,dir,divmod,' +
+    'enumerate,eval,exec,execfile,exit,file,filter,float,format,frozenset,' +
+    'getattr,globals,hasattr,hash,help,hex,id,input,int,intern,isinstance,' +
+    'issubclass,iter,len,license,list,locals,long,map,max,memoryview,min,' +
+    'next,object,oct,open,ord,pow,print,property,quit,range,raw_input,reduce,' +
+    'reload,repr,reversed,round,set,setattr,slice,sorted,staticmethod,str,' +
+    'sum,super,tuple,type,unichr,unicode,vars,xrange,zip'
 );
 
 /**
@@ -139,12 +160,23 @@ Blockly.Python.init = function(workspace) {
     Blockly.Python.variableDB_.reset();
   }
 
+  Blockly.Python.variableDB_.setVariableMap(workspace.getVariableMap());
+
   var defvars = [];
-  var variables = workspace.variableList;
-  for (var i = 0; i < variables.length; i++) {
-    defvars[i] = Blockly.Python.variableDB_.getName(variables[i],
-        Blockly.Variables.NAME_TYPE) + ' = None';
+  // Add developer variables (not created or named by the user).
+  var devVarList = Blockly.Variables.allDeveloperVariables(workspace);
+  for (var i = 0; i < devVarList.length; i++) {
+    defvars.push(Blockly.Python.variableDB_.getName(devVarList[i],
+        Blockly.Names.DEVELOPER_VARIABLE_TYPE) + ' = None');
   }
+
+  // Add user variables, but only ones that are being used.
+  var variables = Blockly.Variables.allUsedVarModels(workspace);
+  for (var i = 0; i < variables.length; i++) {
+    defvars.push(Blockly.Python.variableDB_.getName(variables[i].getId(),
+        Blockly.Variables.NAME_TYPE) + ' = None');
+  }
+
   Blockly.Python.definitions_['variables'] = defvars.join('\n');
 };
 
@@ -193,9 +225,18 @@ Blockly.Python.quote_ = function(string) {
   // Can't use goog.string.quote since % must also be escaped.
   string = string.replace(/\\/g, '\\\\')
                  .replace(/\n/g, '\\\n')
-                 .replace(/\%/g, '\\%')
-                 .replace(/'/g, '\\\'');
-  return '\'' + string + '\'';
+                 .replace(/\%/g, '\\%');
+
+  // Follow the CPython behaviour of repr() for a non-byte string.
+  var quote = '\'';
+  if (string.indexOf('\'') !== -1) {
+    if (string.indexOf('"') === -1) {
+      quote = '"';
+    } else {
+      string = string.replace(/'/g, '\\\'');
+    }
+  };
+  return quote + string + quote;
 };
 
 /**

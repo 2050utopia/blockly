@@ -52,7 +52,9 @@
       <block type="controls_whileUntil"></block>
     </category>
     <category name="Math">
-      <block type="math_number"></block>
+      <block type="math_number">
+        <field name="NUM">123</field>
+      </block>
       <block type="math_arithmetic"></block>
       <block type="math_single"></block>
     </category>
@@ -113,16 +115,16 @@
   </xml>
 
   <script>
-    var workspace = Blockly.inject('blocklyDiv',
+    var demoWorkspace = Blockly.inject('blocklyDiv',
         {media: '../../media/',
          toolbox: document.getElementById('toolbox')});
     Blockly.Xml.domToWorkspace(document.getElementById('startBlocks'),
-                               workspace);
+                               demoWorkspace);
 
     function showCode() {
       // Generate JavaScript code and display it.
       Blockly.JavaScript.INFINITE_LOOP_TRAP = null;
-      var code = Blockly.JavaScript.workspaceToCode(workspace);
+      var code = Blockly.JavaScript.workspaceToCode(demoWorkspace);
       alert(code);
     }
 
@@ -131,7 +133,7 @@
       window.LoopTrap = 1000;
       Blockly.JavaScript.INFINITE_LOOP_TRAP =
           'if (--window.LoopTrap == 0) throw "Infinite loop.";\n';
-      var code = Blockly.JavaScript.workspaceToCode(workspace);
+      var code = Blockly.JavaScript.workspaceToCode(demoWorkspace);
       Blockly.JavaScript.INFINITE_LOOP_TRAP = null;
       try {
         eval(code);

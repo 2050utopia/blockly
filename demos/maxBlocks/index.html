@@ -68,7 +68,9 @@
       </block>
     </category>
     <category name="Math">
-      <block type="math_number"></block>
+      <block type="math_number">
+        <field name="NUM">123</field>
+      </block>
       <block type="math_arithmetic"></block>
       <block type="math_single"></block>
     </category>
@@ -80,17 +82,17 @@
   </xml>
 
   <script>
-    var workspace = Blockly.inject('blocklyDiv',
+    var demoWorkspace = Blockly.inject('blocklyDiv',
         {media: '../../media/',
          maxBlocks: 5,
          toolbox: document.getElementById('toolbox')});
 
     function onchange(event) {
-      document.getElementById('capacity').innerHTML =
-          workspace.remainingCapacity();
+      document.getElementById('capacity').textContent =
+          demoWorkspace.remainingCapacity();
     }
 
-    workspace.addChangeListener(onchange);
+    demoWorkspace.addChangeListener(onchange);
     onchange();
   </script>
 

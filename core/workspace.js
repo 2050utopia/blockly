@@ -26,6 +26,7 @@
 
 goog.provide('Blockly.Workspace');
 
+goog.require('Blockly.VariableMap');
 goog.require('goog.array');
 goog.require('goog.math');
 
@@ -33,12 +34,12 @@ goog.require('goog.math');
 /**
  * Class for a workspace.  This is a data structure that contains blocks.
  * There is no UI, and can be created headlessly.
- * @param {Blockly.Options} opt_options Dictionary of options.
+ * @param {!Blockly.Options=} opt_options Dictionary of options.
  * @constructor
  */
 Blockly.Workspace = function(opt_options) {
   /** @type {string} */
-  this.id = Blockly.genUid();
+  this.id = Blockly.utils.genUid();
   Blockly.Workspace.WorkspaceDB_[this.id] = this;
   /** @type {!Blockly.Options} */
   this.options = opt_options || {};
@@ -61,12 +62,12 @@ Blockly.Workspace = function(opt_options) {
   this.listeners_ = [];
   /**
    * @type {!Array.<!Blockly.Events.Abstract>}
-   * @private
+   * @protected
    */
   this.undoStack_ = [];
   /**
    * @type {!Array.<!Blockly.Events.Abstract>}
-   * @private
+   * @protected
    */
   this.redoStack_ = [];
   /**
@@ -74,12 +75,27 @@ Blockly.Workspace = function(opt_options) {
    * @private
    */
   this.blockDB_ = Object.create(null);
-  /*
-   * @type {!Array.<!string>}
-   * A list of all of the named variables in the workspace, including variables
+
+  /**
+   * A map from variable type to list of variable names.  The lists contain all
+   * of the named variables in the workspace, including variables
    * that are not currently in use.
+   * @type {!Blockly.VariableMap}
+   * @private
    */
-  this.variableList = [];
+  this.variableMap_ = new Blockly.VariableMap(this);
+
+  /**
+   * Blocks in the flyout can refer to variables that don't exist in the main
+   * workspace.  For instance, the "get item in list" block refers to an "item"
+   * variable regardless of whether the variable has been created yet.
+   * A FieldVariable must always refer to a Blockly.VariableModel.  We reconcile
+   * these by tracking "potential" variables in the flyout.  These variables
+   * become real when references to them are dragged into the main workspace.
+   * @type {!Blockly.VariableMap}
+   * @private
+   */
+  this.potentialVariableMap_ = null;
 };
 
 /**
@@ -115,21 +131,10 @@ Blockly.Workspace.SCAN_ANGLE = 3;
 
 /**
  * Add a block to the list of top blocks.
- * @param {!Blockly.Block} block Block to remove.
+ * @param {!Blockly.Block} block Block to add.
  */
 Blockly.Workspace.prototype.addTopBlock = function(block) {
   this.topBlocks_.push(block);
-  if (this.isFlyout) {
-    // This is for the (unlikely) case where you have a variable in a block in
-    // an always-open flyout.  It needs to be possible to edit the block in the
-    // flyout, so the contents of the dropdown need to be correct.
-    var variables = Blockly.Variables.allUsedVariables(block);
-    for (var i = 0; i < variables.length; i++) {
-      if (this.variableList.indexOf(variables[i]) == -1) {
-        this.variableList.push(variables[i]);
-      }
-    }
-  }
 };
 
 /**
@@ -191,162 +196,134 @@ Blockly.Workspace.prototype.clear = function() {
   if (!existingGroup) {
     Blockly.Events.setGroup(false);
   }
-
-  this.variableList.length = 0;
-};
-
-/**
- * Walk the workspace and update the list of variables to only contain ones in
- * use on the workspace.  Use when loading new workspaces from disk.
- * @param {boolean} clearList True if the old variable list should be cleared.
- */
-Blockly.Workspace.prototype.updateVariableList = function(clearList) {
-  // TODO: Sort
-  if (!this.isFlyout) {
-    // Update the list in place so that the flyout's references stay correct.
-    if (clearList) {
-      this.variableList.length = 0;
-    }
-    var allVariables = Blockly.Variables.allUsedVariables(this);
-    for (var i = 0; i < allVariables.length; i++) {
-      this.createVariable(allVariables[i]);
-    }
+  this.variableMap_.clear();
+  if (this.potentialVariableMap_) {
+    this.potentialVariableMap_.clear();
   }
 };
 
+/* Begin functions that are just pass-throughs to the variable map. */
 /**
- * Rename a variable by updating its name in the variable list.
- * TODO: #468
- * @param {string} oldName Variable to rename.
+ * Rename a variable by updating its name in the variable map. Identify the
+ * variable to rename with the given ID.
+ * @param {string} id ID of the variable to rename.
  * @param {string} newName New variable name.
  */
-Blockly.Workspace.prototype.renameVariable = function(oldName, newName) {
-  // Find the old name in the list.
-  var variableIndex = this.variableIndexOf(oldName);
-  var newVariableIndex = this.variableIndexOf(newName);
-
-  // We might be renaming to an existing name but with different case.  If so,
-  // we will also update all of the blocks using the new name to have the
-  // correct case.
-  if (newVariableIndex != -1 &&
-      this.variableList[newVariableIndex] != newName) {
-    var oldCase = this.variableList[newVariableIndex];
-  }
-
-  Blockly.Events.setGroup(true);
-  var blocks = this.getAllBlocks();
-  // Iterate through every block.
-  for (var i = 0; i < blocks.length; i++) {
-    blocks[i].renameVar(oldName, newName);
-    if (oldCase) {
-      blocks[i].renameVar(oldCase, newName);
-    }
-  }
-  Blockly.Events.setGroup(false);
-
-
-  if (variableIndex == newVariableIndex ||
-      variableIndex != -1 && newVariableIndex == -1) {
-    // Only changing case, or renaming to a completely novel name.
-    this.variableList[variableIndex] = newName;
-  } else if (variableIndex != -1 && newVariableIndex != -1) {
-    // Renaming one existing variable to another existing variable.
-    this.variableList.splice(variableIndex, 1);
-    // The case might have changed.
-    this.variableList[newVariableIndex] = newName;
-  } else {
-    this.variableList.push(newName);
-    console.log('Tried to rename an non-existent variable.');
-  }
+Blockly.Workspace.prototype.renameVariableById = function(id, newName) {
+  this.variableMap_.renameVariableById(id, newName);
 };
 
 /**
- * Create a variable with the given name.
- * TODO: #468
- * @param {string} name The new variable's name.
+ * Create a variable with a given name, optional type, and optional ID.
+ * @param {!string} name The name of the variable. This must be unique across
+ *     variables and procedures.
+ * @param {string=} opt_type The type of the variable like 'int' or 'string'.
+ *     Does not need to be unique. Field_variable can filter variables based on
+ *     their type. This will default to '' which is a specific type.
+ * @param {string=} opt_id The unique ID of the variable. This will default to
+ *     a UUID.
+ * @return {?Blockly.VariableModel} The newly created variable.
  */
-Blockly.Workspace.prototype.createVariable = function(name) {
-  var index = this.variableIndexOf(name);
-  if (index == -1) {
-    this.variableList.push(name);
-  }
+Blockly.Workspace.prototype.createVariable = function(name, opt_type, opt_id) {
+  return this.variableMap_.createVariable(name, opt_type, opt_id);
 };
 
 /**
- * Find all the uses of a named variable.
- * @param {string} name Name of variable.
+ * Find all the uses of the given variable, which is identified by ID.
+ * @param {string} id ID of the variable to find.
  * @return {!Array.<!Blockly.Block>} Array of block usages.
  */
-Blockly.Workspace.prototype.getVariableUses = function(name) {
-  var uses = [];
-  var blocks = this.getAllBlocks();
-  // Iterate through every block and check the name.
-  for (var i = 0; i < blocks.length; i++) {
-    var blockVariables = blocks[i].getVars();
-    if (blockVariables) {
-      for (var j = 0; j < blockVariables.length; j++) {
-        var varName = blockVariables[j];
-        // Variable name may be null if the block is only half-built.
-        if (varName && Blockly.Names.equals(varName, name)) {
-          uses.push(blocks[i]);
-        }
-      }
-    }
-  }
-  return uses;
+Blockly.Workspace.prototype.getVariableUsesById = function(id) {
+  return this.variableMap_.getVariableUsesById(id);
 };
 
 /**
- * Delete a variables and all of its uses from this workspace.
- * @param {string} name Name of variable to delete.
+ * Delete a variables by the passed in ID and all of its uses from this
+ * workspace. May prompt the user for confirmation.
+ * @param {string} id ID of variable to delete.
  */
-Blockly.Workspace.prototype.deleteVariable = function(name) {
-  var variableIndex = this.variableIndexOf(name);
-  if (variableIndex != -1) {
-    var uses = this.getVariableUses(name);
-    if (uses.length > 1) {
-      for (var i = 0, block; block = uses[i]; i++) {
-        if (block.type == 'procedures_defnoreturn' ||
-          block.type == 'procedures_defreturn') {
-          var procedureName = block.getFieldValue('NAME');
-          window.alert(
-              Blockly.Msg.CANNOT_DELETE_VARIABLE_PROCEDURE.replace('%1', name).
-              replace('%2', procedureName));
-          return;
-        }
-      }
-      var ok = window.confirm(
-          Blockly.Msg.DELETE_VARIABLE_CONFIRMATION.replace('%1', uses.length).
-          replace('%2', name));
-      if (!ok) {
-        return;
-      }
-    }
+Blockly.Workspace.prototype.deleteVariableById = function(id) {
+  this.variableMap_.deleteVariableById(id);
+};
 
-    Blockly.Events.setGroup(true);
-    for (var i = 0; i < uses.length; i++) {
-      uses[i].dispose(true, false);
-    }
-    Blockly.Events.setGroup(false);
-    this.variableList.splice(variableIndex, 1);
-  }
+/**
+ * Deletes a variable and all of its uses from this workspace without asking the
+ * user for confirmation.
+ * @param {!Blockly.VariableModel} variable Variable to delete.
+ * @param {!Array.<!Blockly.Block>} uses An array of uses of the variable.
+ * @private
+ */
+Blockly.Workspace.prototype.deleteVariableInternal_ = function(variable, uses) {
+  this.variableMap_.deleteVariableInternal_(variable, uses);
 };
 
 /**
  * Check whether a variable exists with the given name.  The check is
  * case-insensitive.
- * @param {string} name The name to check for.
+ * @param {string} _name The name to check for.
  * @return {number} The index of the name in the variable list, or -1 if it is
  *     not present.
+ * @deprecated April 2017
  */
-Blockly.Workspace.prototype.variableIndexOf = function(name) {
-  for (var i = 0, varname; varname = this.variableList[i]; i++) {
-    if (Blockly.Names.equals(varname, name)) {
-      return i;
-    }
-  }
+
+Blockly.Workspace.prototype.variableIndexOf = function(_name) {
+  console.warn(
+      'Deprecated call to Blockly.Workspace.prototype.variableIndexOf');
   return -1;
 };
+
+/**
+ * Find the variable by the given name and return it. Return null if it is not
+ *     found.
+ * @param {!string} name The name to check for.
+ * @param {string=} opt_type The type of the variable.  If not provided it
+ *     defaults to the empty string, which is a specific type.
+ * @return {?Blockly.VariableModel} the variable with the given name.
+ */
+// TODO (#1199): Possibly delete this function.
+Blockly.Workspace.prototype.getVariable = function(name, opt_type) {
+  return this.variableMap_.getVariable(name, opt_type);
+};
+
+/**
+ * Find the variable by the given ID and return it. Return null if it is not
+ *     found.
+ * @param {!string} id The ID to check for.
+ * @return {?Blockly.VariableModel} The variable with the given ID.
+ */
+Blockly.Workspace.prototype.getVariableById = function(id) {
+  return this.variableMap_.getVariableById(id);
+};
+
+/**
+ * Find the variable with the specified type. If type is null, return list of
+ *     variables with empty string type.
+ * @param {?string} type Type of the variables to find.
+ * @return {Array.<Blockly.VariableModel>} The sought after variables of the
+ *     passed in type. An empty array if none are found.
+ */
+Blockly.Workspace.prototype.getVariablesOfType = function(type) {
+  return this.variableMap_.getVariablesOfType(type);
+};
+
+/**
+ * Return all variable types.
+ * @return {!Array.<string>} List of variable types.
+ * @package
+ */
+Blockly.Workspace.prototype.getVariableTypes = function() {
+  return this.variableMap_.getVariableTypes();
+};
+
+/**
+ * Return all variables of all types.
+ * @return {!Array.<Blockly.VariableModel>} List of variable models.
+ */
+Blockly.Workspace.prototype.getAllVariables = function() {
+  return this.variableMap_.getAllVariables();
+};
+
+/* End functions that are just pass-throughs to the variable map. */
 
 /**
  * Returns the horizontal offset of the workspace.
@@ -363,7 +340,7 @@ Blockly.Workspace.prototype.getWidth = function() {
  * @param {?string} prototypeName Name of the language object containing
  *     type-specific functions for this block.
  * @param {string=} opt_id Optional ID.  Use this ID if provided, otherwise
- *     create a new id.
+ *     create a new ID.
  * @return {!Blockly.Block} The created block.
  */
 Blockly.Workspace.prototype.newBlock = function(prototypeName, opt_id) {
@@ -405,10 +382,13 @@ Blockly.Workspace.prototype.undo = function(redo) {
   }
   events = Blockly.Events.filter(events, redo);
   Blockly.Events.recordUndo = false;
-  for (var i = 0, event; event = events[i]; i++) {
-    event.run(redo);
+  try {
+    for (var i = 0, event; event = events[i]; i++) {
+      event.run(redo);
+    }
+  } finally {
+    Blockly.Events.recordUndo = true;
   }
-  Blockly.Events.recordUndo = true;
 };
 
 /**
@@ -464,6 +444,49 @@ Blockly.Workspace.prototype.fireChangeListener = function(event) {
  */
 Blockly.Workspace.prototype.getBlockById = function(id) {
   return this.blockDB_[id] || null;
+};
+
+/**
+ * Checks whether all value and statement inputs in the workspace are filled
+ * with blocks.
+ * @param {boolean=} opt_shadowBlocksAreFilled An optional argument controlling
+ *     whether shadow blocks are counted as filled. Defaults to true.
+ * @return {boolean} True if all inputs are filled, false otherwise.
+ */
+Blockly.Workspace.prototype.allInputsFilled = function(opt_shadowBlocksAreFilled) {
+  var blocks = this.getTopBlocks(false);
+  for (var i = 0, block; block = blocks[i]; i++) {
+    if (!block.allInputsFilled(opt_shadowBlocksAreFilled)) {
+      return false;
+    }
+  }
+  return true;
+};
+
+/**
+ * Return the variable map that contains "potential" variables.  These exist in
+ * the flyout but not in the workspace.
+ * @return {?Blockly.VariableMap} The potential variable map.
+ * @package
+ */
+Blockly.Workspace.prototype.getPotentialVariableMap = function() {
+  return this.potentialVariableMap_;
+};
+
+/**
+ * Create and store the potential variable map for this workspace.
+ * @package
+ */
+Blockly.Workspace.prototype.createPotentialVariableMap = function() {
+  this.potentialVariableMap_ = new Blockly.VariableMap(this);
+};
+
+/**
+ * Return the map of all variables on the workspace.
+ * @return {?Blockly.VariableMap} The  variable map.
+ */
+Blockly.Workspace.prototype.getVariableMap = function() {
+  return this.variableMap_;
 };
 
 /**

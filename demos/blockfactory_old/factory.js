@@ -748,8 +748,8 @@ function updatePreview() {
 function injectCode(code, id) {
   var pre = document.getElementById(id);
   pre.textContent = code;
-  code = pre.innerHTML;
-  code = prettyPrintOne(code, 'js');
+  code = pre.textContent;
+  code = PR.prettyPrintOne(code, 'js');
   pre.innerHTML = code;
 }
 

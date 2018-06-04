@@ -24,10 +24,16 @@
  * @author madeeha@google.com (Madeeha Ghori)
  */
 
-blocklyApp.FieldSegmentComponent = ng.core
-  .Component({
-    selector: 'blockly-field-segment',
-    template: `
+goog.provide('blocklyApp.FieldSegmentComponent');
+
+goog.require('blocklyApp.NotificationsService');
+goog.require('blocklyApp.TranslatePipe');
+goog.require('blocklyApp.VariableModalService');
+
+
+blocklyApp.FieldSegmentComponent = ng.core.Component({
+  selector: 'blockly-field-segment',
+  template: `
     <template [ngIf]="!mainField">
       <label [id]="mainFieldId">{{getPrefixText()}}</label>
     </template>
@@ -35,133 +41,166 @@ blocklyApp.FieldSegmentComponent = ng.core
     <template [ngIf]="mainField">
       <template [ngIf]="isTextInput()">
         {{getPrefixText()}}
-        <input [id]="mainFieldId" type="text" [disabled]="disabled"
-               [ngModel]="mainField.getValue()" (ngModelChange)="mainField.setValue($event)"
-               [attr.aria-label]="getFieldDescription() + (disabled ? 'Disabled text field' : 'Press Enter to edit text')"
+        <input [id]="mainFieldId" type="text"
+               [ngModel]="mainField.getValue()" (ngModelChange)="setTextValue($event)"
+               [attr.aria-label]="getFieldDescription() + '. ' + ('PRESS_ENTER_TO_EDIT_TEXT'|translate)"
                tabindex="-1">
       </template>
 
       <template [ngIf]="isNumberInput()">
         {{getPrefixText()}}
-        <input [id]="mainFieldId" type="number" [disabled]="disabled"
+        <input [id]="mainFieldId" type="number"
                [ngModel]="mainField.getValue()" (ngModelChange)="setNumberValue($event)"
-               [attr.aria-label]="getFieldDescription() + (disabled ? 'Disabled number field' : 'Press Enter to edit number')"
+               [attr.aria-label]="getFieldDescription() + '. ' + ('PRESS_ENTER_TO_EDIT_NUMBER'|translate)"
                tabindex="-1">
       </template>
 
       <template [ngIf]="isDropdown()">
-        <label [id]="mainFieldId" [attr.aria-label]="getFieldDescription() + ' Move right to view submenu'">
-          {{getFieldDescription()}}
-        </label>
-        <ol role="group">
-          <li [id]="idMap[optionValue]" role="treeitem" *ngFor="#optionValue of getOptions()"
-              [attr.aria-labelledBy]="generateAriaLabelledByAttr(idMap[optionValue + 'Button'], 'blockly-button')"
-              [attr.aria-level]="level" [attr.aria-selected]="mainField.getValue() == optionValue"
-              class="blocklyDropdownListItem">
-            <button [id]="idMap[optionValue + 'Button']" (click)="handleDropdownChange(mainField, optionValue)"
-                    [disabled]="disabled" tabindex="-1"
-                    [attr.aria-label]="optionText[optionValue] + ' Press Enter to select this value'">
-              {{optionText[optionValue]}}
-            </button>
-          </li>
-        </ol>
+        {{getPrefixText()}}
+        <select [id]="mainFieldId" [name]="mainFieldId"
+                [ngModel]="selectedOption" (ngModelChange)="setDropdownValue($event)"
+                (keydown.enter)="selectOption()"
+                tabindex="-1">
+          <option *ngFor="#option of dropdownOptions" value="{{option.value}}">
+            {{option.text}}
+          </option>
+        </select>
       </template>
     </template>
-    `,
-    inputs: ['prefixFields', 'mainField', 'mainFieldId', 'level'],
-    pipes: [blocklyApp.TranslatePipe]
-  })
-  .Class({
-    constructor: [
-        blocklyApp.NotificationsService, blocklyApp.UtilsService,
-        function(_notificationsService, _utilsService) {
-      this.optionText = {
-        keys: []
-      };
-      this.notificationsService = _notificationsService;
-      this.utilsService = _utilsService;
-    }],
-    ngOnInit: function() {
-      var elementsNeedingIds = this.generateElementNames(this.mainField);
-      // Warning: this assumes that the elements returned by
-      // this.generateElementNames() are unique.
-      this.idMap = this.utilsService.generateIds(elementsNeedingIds);
-    },
-    getPrefixText: function() {
-      var prefixTexts = this.prefixFields.map(function(prefixField) {
-        return prefixField.getText();
+  `,
+  inputs: ['prefixFields', 'mainField', 'mainFieldId', 'level'],
+  pipes: [blocklyApp.TranslatePipe]
+})
+.Class({
+  constructor: [
+      blocklyApp.NotificationsService,
+      blocklyApp.VariableModalService,
+      function(notificationsService, variableModalService) {
+    this.notificationsService = notificationsService;
+    this.variableModalService = variableModalService;
+    this.dropdownOptions = [];
+    this.rawOptions = [];
+  }],
+  // Angular2 hook - called after initialization.
+  ngAfterContentInit: function() {
+    if (this.mainField) {
+      this.mainField.initModel();
+    }
+  },
+  // Angular2 hook - called to check if the cached component needs an update.
+  ngDoCheck: function() {
+    if (this.isDropdown() && this.shouldBreakCache()) {
+      this.optionValue = this.mainField.getValue();
+      this.fieldValue = this.mainField.getValue();
+      this.rawOptions = this.mainField.getOptions();
+      this.dropdownOptions = this.rawOptions.map(function(valueAndText) {
+        return {
+          text: valueAndText[0],
+          value: valueAndText[1]
+        };
       });
-      return prefixTexts.join(' ');
-    },
-    getFieldDescription: function() {
-      var description = this.mainField.getText();
-      if (this.prefixFields.length > 0) {
-        description = this.getPrefixText() + ': ' + description;
-      }
-      return description;
-    },
-    setNumberValue: function(newValue) {
-      // Do not permit a residual value of NaN after a backspace event.
-      this.mainField.setValue(newValue || 0);
-    },
-    generateAriaLabelledByAttr: function(mainLabel, secondLabel) {
-      return mainLabel + ' ' + secondLabel;
-    },
-    generateElementNames: function() {
-      var elementNames = [];
-      if (this.isDropdown()) {
-        var keys = this.getOptions();
-        for (var i = 0; i < keys.length; i++){
-          elementNames.push(keys[i], keys[i] + 'Button');
+
+      // Set the currently selected value to the variable on the field.
+      for (var i = 0; i < this.dropdownOptions.length; i++) {
+        if (this.dropdownOptions[i].text === this.fieldValue) {
+          this.selectedOption = this.dropdownOptions[i].value;
         }
       }
-      return elementNames;
-    },
-    isNumberInput: function() {
-      return this.mainField instanceof Blockly.FieldNumber;
-    },
-    isTextInput: function() {
-      return this.mainField instanceof Blockly.FieldTextInput &&
-          !(this.mainField instanceof Blockly.FieldNumber);
-    },
-    isDropdown: function() {
-      return this.mainField instanceof Blockly.FieldDropdown;
-    },
-    isCheckbox: function() {
-      return this.mainField instanceof Blockly.FieldCheckbox;
-    },
-    isTextField: function() {
-      return !(this.mainField instanceof Blockly.FieldTextInput) &&
-          !(this.mainField instanceof Blockly.FieldDropdown) &&
-          !(this.mainField instanceof Blockly.FieldCheckbox);
-    },
-    hasVisibleText: function() {
-      var text = this.mainField.getText().trim();
-      return !!text;
-    },
-    getOptions: function() {
-      if (this.optionText.keys.length) {
-        return this.optionText.keys;
-      }
-      var options = this.mainField.getOptions_();
-      for (var i = 0; i < options.length; i++) {
-        var tuple = options[i];
-        this.optionText[tuple[1]] = tuple[0];
-        this.optionText.keys.push(tuple[1]);
-      }
-      return this.optionText.keys;
-    },
-    handleDropdownChange: function(field, optionValue) {
-      if (optionValue == 'NO_ACTION') {
-        return;
-      }
-      if (this.mainField instanceof Blockly.FieldVariable) {
-        Blockly.FieldVariable.dropdownChange.call(this.mainField, optionValue);
-      } else {
-        this.mainField.setValue(optionValue);
-      }
-
-      this.notificationsService.setStatusMessage(
-          'Selected option ' + this.optionText[optionValue]);
     }
-  });
+  },
+  // Returns whether the mutable, cached information needs to be refreshed.
+  shouldBreakCache: function() {
+    var newOptions = this.mainField.getOptions();
+    if (newOptions.length != this.rawOptions.length) {
+      return true;
+    }
+
+    for (var i = 0; i < this.rawOptions.length; i++) {
+      // Compare the value of the cached options with the values in the field.
+      if (newOptions[i][0] != this.rawOptions[i][0]) {
+        return true;
+      }
+    }
+
+    if (this.fieldValue != this.mainField.getValue()) {
+      return true;
+    }
+
+    return false;
+  },
+  // Gets the prefix text, to be printed before a field.
+  getPrefixText: function() {
+    var prefixTexts = this.prefixFields.map(function(prefixField) {
+      return prefixField.getText();
+    });
+    return prefixTexts.join(' ');
+  },
+  // Gets the description, for labeling a field.
+  getFieldDescription: function() {
+    var description = this.mainField.getText();
+    if (this.prefixFields.length > 0) {
+      description = this.getPrefixText() + ': ' + description;
+    }
+    return description;
+  },
+  // Returns true if the field is text input, false otherwise.
+  isTextInput: function() {
+    return this.mainField instanceof Blockly.FieldTextInput &&
+        !(this.mainField instanceof Blockly.FieldNumber);
+  },
+  // Returns true if the field is number input, false otherwise.
+  isNumberInput: function() {
+    return this.mainField instanceof Blockly.FieldNumber;
+  },
+  // Returns true if the field is a dropdown, false otherwise.
+  isDropdown: function() {
+    return this.mainField instanceof Blockly.FieldDropdown;
+  },
+  // Sets the text value on the underlying field.
+  setTextValue: function(newValue) {
+    this.mainField.setValue(newValue);
+  },
+  // Sets the number value on the underlying field.
+  setNumberValue: function(newValue) {
+    // Do not permit a residual value of NaN after a backspace event.
+    this.mainField.setValue(newValue || 0);
+  },
+  // Confirm a selection for dropdown fields.
+  selectOption: function() {
+    if (this.optionValue != Blockly.RENAME_VARIABLE_ID && this.optionValue !=
+        Blockly.DELETE_VARIABLE_ID) {
+      this.mainField.setValue(this.optionValue);
+    }
+
+    if (this.optionValue == Blockly.RENAME_VARIABLE_ID) {
+      this.variableModalService.showRenameModal_(this.mainField.getValue());
+    }
+
+    if (this.optionValue == Blockly.DELETE_VARIABLE_ID) {
+      this.variableModalService.showRemoveModal_(this.mainField.getValue());
+    }
+  },
+  // Sets the value on a dropdown input.
+  setDropdownValue: function(optionValue) {
+    this.optionValue = optionValue
+    if (this.optionValue == 'NO_ACTION') {
+      return;
+    }
+
+    var optionText = undefined;
+    for (var i = 0; i < this.dropdownOptions.length; i++) {
+      if (this.dropdownOptions[i].value == optionValue) {
+        optionText = this.dropdownOptions[i].text;
+        break;
+      }
+    }
+
+    if (!optionText) {
+      throw Error(
+          'There is no option text corresponding to the value: ' +
+          this.optionValue);
+    }
+
+    this.notificationsService.speak('Selected option ' + optionText);
+  }
+});

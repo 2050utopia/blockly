@@ -321,7 +321,7 @@ WorkspaceFactoryView.prototype.markShadowBlocks = function(blocks) {
  */
 WorkspaceFactoryView.prototype.markShadowBlock = function(block) {
   // Add Blockly CSS for user-generated shadow blocks.
-  Blockly.addClass_(block.svgGroup_, 'shadowBlock');
+  Blockly.utils.addClass(block.svgGroup_, 'shadowBlock');
   // If not a valid shadow block, add a warning message.
   if (!block.getSurroundParent()) {
       block.setWarningText('Shadow blocks must be nested inside' +
@@ -339,9 +339,7 @@ WorkspaceFactoryView.prototype.markShadowBlock = function(block) {
  */
 WorkspaceFactoryView.prototype.unmarkShadowBlock = function(block) {
   // Remove Blockly CSS for user-generated shadow blocks.
-  if (Blockly.hasClass_(block.svgGroup_, 'shadowBlock')) {
-    Blockly.removeClass_(block.svgGroup_, 'shadowBlock');
-  }
+  Blockly.utils.removeClass(block.svgGroup_, 'shadowBlock');
 };
 
 /**
@@ -382,15 +380,25 @@ WorkspaceFactoryView.prototype.updateHelpText = function(mode) {
  * or a single flyout of blocks. Updates checkboxes and text fields.
  */
 WorkspaceFactoryView.prototype.setBaseOptions = function() {
+  // Readonly mode.
+  document.getElementById('option_readOnly_checkbox').checked = false;
+  blocklyFactory.ifCheckedEnable(true, ['readonly1', 'readonly2']);
+
   // Set basic options.
   document.getElementById('option_css_checkbox').checked = true;
-  document.getElementById('option_infiniteBlocks_checkbox').checked = true;
   document.getElementById('option_maxBlocks_number').value = 100;
   document.getElementById('option_media_text').value =
       'https://blockly-demo.appspot.com/static/media/';
-  document.getElementById('option_readOnly_checkbox').checked = false;
   document.getElementById('option_rtl_checkbox').checked = false;
   document.getElementById('option_sounds_checkbox').checked = true;
+  document.getElementById('option_oneBasedIndex_checkbox').checked = true;
+  document.getElementById('option_horizontalLayout_checkbox').checked = false;
+  document.getElementById('option_toolboxPosition_checkbox').checked = false;
+
+  // Check infinite blocks and hide suboption.
+  document.getElementById('option_infiniteBlocks_checkbox').checked = true;
+  document.getElementById('maxBlockNumber_option').style.display =
+      'none';
 
   // Uncheck grid and zoom options and hide suboptions.
   document.getElementById('option_grid_checkbox').checked = false;
@@ -399,7 +407,7 @@ WorkspaceFactoryView.prototype.setBaseOptions = function() {
   document.getElementById('zoom_options').style.display = 'none';
 
   // Set grid options.
-  document.getElementById('gridOption_spacing_number').value = 0;
+  document.getElementById('gridOption_spacing_number').value = 20;
   document.getElementById('gridOption_length_number').value = 1;
   document.getElementById('gridOption_colour_text').value = '#888';
   document.getElementById('gridOption_snap_checkbox').checked = false;

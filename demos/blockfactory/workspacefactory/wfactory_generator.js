@@ -42,7 +42,7 @@ WorkspaceFactoryGenerator = function(model) {
   var hiddenBlocks = document.createElement('div');
   // Generate a globally unique ID for the hidden div element to avoid
   // collisions.
-  var hiddenBlocksId = Blockly.genUid();
+  var hiddenBlocksId = Blockly.utils.genUid();
   hiddenBlocks.id = hiddenBlocksId;
   hiddenBlocks.style.display = 'none';
   document.body.appendChild(hiddenBlocks);
@@ -178,7 +178,7 @@ WorkspaceFactoryGenerator.prototype.generateInjectString = function() {
       ' workspace blocks XML from Workspace Factory. */\n' +
       'var workspaceBlocks = document.getElementById("workspaceBlocks"); \n\n' +
       '/* Load blocks to workspace. */\n' +
-      'Blockly.Xml.domToWorkspace(workspace, workspaceBlocks);';
+      'Blockly.Xml.domToWorkspace(workspaceBlocks, workspace);';
   return finalStr;
 };
 

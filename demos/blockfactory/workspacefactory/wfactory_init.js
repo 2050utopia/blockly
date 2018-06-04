@@ -63,29 +63,21 @@ WorkspaceFactoryInit.initWorkspaceFactory = function(controller) {
  * @private
  */
 WorkspaceFactoryInit.initColorPicker_ = function(controller) {
-  // Array of Blockly category colors, variety of hues with saturation 45%
-  // and value 65% as specified in Blockly Developer documentation:
-  // developers.google.com/blockly/guides/create-custom-blocks/define-blocks
-  var colors = [
-    '#A6795C', '#A69F5C', '#88A65C', '#5EA65C', '#5CA67E', '#5CA6A4', '#5C83A6',
-        '#5E5CA6', '#835CA6', '#A65CA4', '#A65C7E', '#A65C5E',
-    '#A6725C', '#A6975C', '#90A65C', '#66A65C', '#5CA677', '#5CA69C', '#5C8BA6',
-        '#5C61A6', '#7C5CA6', '#A15CA6', '#A65C86', '#A65C61',
-    '#A66A5C', '#A6905C', '#97A65C', '#6FA65C', '#5CA66F', '#5CA695', '#5C92A6',
-        '#5C6AA6', '#745CA6', '#9A5CA6', '#A65C8D', '#A65C66',
-    '#A6635C', '#A6885C', '#9FA65C', '#79A65C', '#5CA668', '#5CA68D', '#5C9AA6',
-        '#5C74A6', '#6D5CA6', '#925CA6', '#A65C95', '#A65C6F',
-    '#A65C5C', '#A6815C', '#A6A65C', '#81A65C', '#5CA661', '#5CA686', '#5CA1A6',
-        '#5C7CA6', '#665CA6', '#8B5CA6', '#A65C9C', '#A65C77'
-  ];
+  // Array of Blockly category colours, consitent with the 15 degree default
+  // of the block factory's colour wheel.
+  var colours = [];
+  for (var hue = 0; hue < 360; hue += 15) {
+    colours.push(WorkspaceFactoryInit.hsvToHex_(hue,
+        Blockly.HSV_SATURATION, Blockly.HSV_VALUE));
+  }
 
-  // Create color picker with specific set of Blockly colors.
-  var colorPicker = new goog.ui.ColorPicker();
-  colorPicker.setSize(12);
-  colorPicker.setColors(colors);
+  // Create color picker with specific set of Blockly colours.
+  var colourPicker = new goog.ui.ColorPicker();
+  colourPicker.setSize(6);
+  colourPicker.setColors(colours);
 
-  // Create and render the popup color picker and attach to button.
-  var popupPicker = new goog.ui.PopupColorPicker(null, colorPicker);
+  // Create and render the popup colour picker and attach to button.
+  var popupPicker = new goog.ui.PopupColorPicker(null, colourPicker);
   popupPicker.render();
   popupPicker.attach(document.getElementById('dropdown_color'));
   popupPicker.setFocusable(true);
@@ -93,6 +85,70 @@ WorkspaceFactoryInit.initColorPicker_ = function(controller) {
     controller.changeSelectedCategoryColor(popupPicker.getSelectedColor());
     blocklyFactory.closeModal();
   });
+};
+
+/**
+ * Converts from h,s,v values to a hex string
+ * @param {number} h Hue, in [0, 360].
+ * @param {number} s Saturation, in [0, 1].
+ * @param {number} v Value, in [0, 1].
+ * @return {string} hex representation of the color.
+ * @private
+ */
+WorkspaceFactoryInit.hsvToHex_ = function(h, s, v) {
+  var brightness = v * 255;
+  var red = 0;
+  var green = 0;
+  var blue = 0;
+  if (s == 0) {
+    red = brightness;
+    green = brightness;
+    blue = brightness;
+  } else {
+    var sextant = Math.floor(h / 60);
+    var remainder = (h / 60) - sextant;
+    var val1 = brightness * (1 - s);
+    var val2 = brightness * (1 - (s * remainder));
+    var val3 = brightness * (1 - (s * (1 - remainder)));
+    switch (sextant) {
+      case 1:
+        red = val2;
+        green = brightness;
+        blue = val1;
+        break;
+      case 2:
+        red = val1;
+        green = brightness;
+        blue = val3;
+        break;
+      case 3:
+        red = val1;
+        green = val2;
+        blue = brightness;
+        break;
+      case 4:
+        red = val3;
+        green = val1;
+        blue = brightness;
+        break;
+      case 5:
+        red = brightness;
+        green = val1;
+        blue = val2;
+        break;
+      case 6:
+      case 0:
+        red = brightness;
+        green = val3;
+        blue = val1;
+        break;
+    }
+  }
+
+  var hexR = ('0' + Math.floor(red).toString(16)).slice(-2);
+  var hexG = ('0' + Math.floor(green).toString(16)).slice(-2);
+  var hexB = ('0' + Math.floor(blue).toString(16)).slice(-2);
+  return '#' + hexR + hexG + hexB;
 };
 
 /**
@@ -329,8 +385,9 @@ WorkspaceFactoryInit.addWorkspaceFactoryEventListeners_ = function(controller) {
   var isInvalidBlockPlacement = function(block) {
     return ((controller.isUserGenShadowBlock(block.id) &&
         !block.getSurroundParent()) ||
-        (!controller.isUserGenShadowBlock(block.id) && block.getSurroundParent()
-        && controller.isUserGenShadowBlock(block.getSurroundParent().id)));
+        (!controller.isUserGenShadowBlock(block.id) &&
+         block.getSurroundParent() &&
+         controller.isUserGenShadowBlock(block.getSurroundParent().id)));
   };
 
   // Add change listeners for toolbox workspace in workspace factory.
@@ -339,8 +396,9 @@ WorkspaceFactoryInit.addWorkspaceFactoryEventListeners_ = function(controller) {
     // Not listening for Blockly create events because causes the user to drop
     // blocks when dragging them into workspace. Could cause problems if ever
     // load blocks into workspace directly without calling updatePreview.
-    if (e.type == Blockly.Events.MOVE || e.type == Blockly.Events.DELETE ||
-          e.type == Blockly.Events.CHANGE) {
+    if (e.type == Blockly.Events.BLOCK_MOVE ||
+          e.type == Blockly.Events.BLOCK_DELETE ||
+          e.type == Blockly.Events.BLOCK_CHANGE) {
       controller.saveStateFromWorkspace();
       controller.updatePreview();
     }
@@ -349,7 +407,7 @@ WorkspaceFactoryInit.addWorkspaceFactoryEventListeners_ = function(controller) {
     // Only enable "Edit Block" when a block is selected and it has a
     // surrounding parent, meaning it is nested in another block (blocks that
     // are not nested in parents cannot be shadow blocks).
-    if (e.type == Blockly.Events.MOVE || (e.type == Blockly.Events.UI &&
+    if (e.type == Blockly.Events.BLOCK_MOVE || (e.type == Blockly.Events.UI &&
         e.element == 'selected')) {
       var selected = Blockly.selected;
 
@@ -423,7 +481,7 @@ WorkspaceFactoryInit.addWorkspaceFactoryEventListeners_ = function(controller) {
 
     // Convert actual shadow blocks added from the toolbox to user-generated
     // shadow blocks.
-    if (e.type == Blockly.Events.CREATE) {
+    if (e.type == Blockly.Events.BLOCK_CREATE) {
       controller.convertShadowBlocks();
 
       // Let the user create a Variables or Functions category if they use
@@ -513,7 +571,7 @@ WorkspaceFactoryInit.addWorkspaceFactoryOptionsListeners_ =
             'block' : 'none';
       });
 
-  // Checking the grid checkbox displays zoom options.
+  // Checking the zoom checkbox displays zoom options.
   document.getElementById('option_zoom_checkbox').addEventListener('change',
       function(e) {
         document.getElementById('zoom_options').style.display =
@@ -521,12 +579,12 @@ WorkspaceFactoryInit.addWorkspaceFactoryOptionsListeners_ =
             'block' : 'none';
       });
 
+  // Checking the readonly checkbox enables/disables other options.
   document.getElementById('option_readOnly_checkbox').addEventListener('change',
     function(e) {
       var checkbox = document.getElementById('option_readOnly_checkbox');
       blocklyFactory.ifCheckedEnable(!checkbox.checked,
-          ['readonly1', 'readonly2', 'readonly3', 'readonly4', 'readonly5',
-           'readonly6', 'readonly7']);
+          ['readonly1', 'readonly2']);
     });
 
     document.getElementById('option_infiniteBlocks_checkbox').addEventListener('change',
@@ -537,9 +595,10 @@ WorkspaceFactoryInit.addWorkspaceFactoryOptionsListeners_ =
     });
 
   // Generate new options every time an options input is updated.
-  var optionsElements = document.getElementsByClassName('optionsInput');
-  for (var i = 0; i < optionsElements.length; i++) {
-    optionsElements[i].addEventListener('change', function() {
+  var div = document.getElementById('workspace_options');
+  var options = div.getElementsByTagName('input');
+  for (var i = 0, option; option = options[i]; i++) {
+    option.addEventListener('change', function() {
       controller.generateNewOptions();
     });
   }

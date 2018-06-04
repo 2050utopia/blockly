@@ -28,6 +28,7 @@
 goog.provide('AppController');
 
 goog.require('BlockFactory');
+goog.require('BlocklyDevTools.Analytics');
 goog.require('FactoryUtils');
 goog.require('BlockLibraryController');
 goog.require('BlockExporterController');
@@ -85,6 +86,10 @@ AppController.prototype.importBlockLibraryFromFile = function() {
   var files = document.getElementById('files');
   // If the file list is empty, the user likely canceled in the dialog.
   if (files.files.length > 0) {
+    BlocklyDevTools.Analytics.onImport(
+        BlocklyDevTools.Analytics.BLOCK_FACTORY_LIBRARY,
+        { format: BlocklyDevTools.Analytics.FORMAT_XML });
+
     // The input tag doesn't have the "multiple" attribute
     // so the user can only choose 1 file.
     var file = files.files[0];
@@ -137,9 +142,14 @@ AppController.prototype.exportBlockLibraryToFile = function() {
   // Download file if all necessary parameters are provided.
   if (filename) {
     FactoryUtils.createAndDownloadFile(blockLibText, filename, 'xml');
+    BlocklyDevTools.Analytics.onExport(
+        BlocklyDevTools.Analytics.BLOCK_FACTORY_LIBRARY,
+        { format: BlocklyDevTools.Analytics.FORMAT_XML });
   } else {
-    alert('Could not export Block Library without file name under which to ' +
-      'save library.');
+    var msg = 'Could not export Block Library without file name under which ' +
+      'to save library.';
+    BlocklyDevTools.Analytics.onWarning(msg);
+    alert(msg);
   }
 };
 
@@ -199,6 +209,8 @@ AppController.prototype.formatBlockLibraryForImport_ = function(xmlText) {
     xmlText = Blockly.Xml.domToText(xmlDom);
     // All block types should be lowercase.
     var blockType = this.getBlockTypeFromXml_(xmlText).toLowerCase();
+    // Some names are invalid so fix them up.
+    blockType = FactoryUtils.cleanBlockType(blockType);
 
     blockXmlTextMap[blockType] = xmlText;
   }
@@ -283,13 +295,17 @@ AppController.prototype.onTab = function() {
 
     var hasUnsavedChanges =
         !FactoryUtils.savedBlockChanges(this.blockLibraryController);
-    if (hasUnsavedChanges &&
-        !confirm('You have unsaved changes in Block Factory.')) {
-      // If the user doesn't want to switch tabs with unsaved changes,
-      // stay on Block Factory Tab.
-      this.setSelected_(AppController.BLOCK_FACTORY);
-      this.lastSelectedTab = AppController.BLOCK_FACTORY;
-      return;
+    if (hasUnsavedChanges) {
+      var msg = 'You have unsaved changes in Block Factory.';
+      var continueAnyway = confirm(msg);
+      BlocklyDevTools.Analytics.onWarning(msg);
+      if (!continueAnyway) {
+        // If the user doesn't want to switch tabs with unsaved changes,
+        // stay on Block Factory Tab.
+        this.setSelected_(AppController.BLOCK_FACTORY);
+        this.lastSelectedTab = AppController.BLOCK_FACTORY;
+        return;
+      }
     }
   }
 
@@ -302,6 +318,8 @@ AppController.prototype.onTab = function() {
   this.styleTabs_();
 
   if (this.selectedTab == AppController.EXPORTER) {
+    BlocklyDevTools.Analytics.onNavigateTo('Exporter');
+
     // Hide other tabs.
     FactoryUtils.hide('workspaceFactoryContent');
     FactoryUtils.hide('blockFactoryContent');
@@ -323,6 +341,8 @@ AppController.prototype.onTab = function() {
     this.exporter.updatePreview();
 
   } else if (this.selectedTab ==  AppController.BLOCK_FACTORY) {
+    BlocklyDevTools.Analytics.onNavigateTo('BlockFactory');
+
     // Hide other tabs.
     FactoryUtils.hide('blockLibraryExporter');
     FactoryUtils.hide('workspaceFactoryContent');
@@ -330,6 +350,9 @@ AppController.prototype.onTab = function() {
     FactoryUtils.show('blockFactoryContent');
 
   } else if (this.selectedTab == AppController.WORKSPACE_FACTORY) {
+    // TODO: differentiate Workspace and Toolbox editor, based on the other tab state.
+    BlocklyDevTools.Analytics.onNavigateTo('WorkspaceFactory');
+
     // Hide other tabs.
     FactoryUtils.hide('blockLibraryExporter');
     FactoryUtils.hide('blockFactoryContent');
@@ -561,9 +584,9 @@ AppController.prototype.addBlockFactoryEventListeners = function() {
   document.getElementById('direction')
       .addEventListener('change', BlockFactory.updatePreview);
   document.getElementById('languageTA')
-      .addEventListener('change', BlockFactory.updatePreview);
+      .addEventListener('change', BlockFactory.manualEdit);
   document.getElementById('languageTA')
-      .addEventListener('keyup', BlockFactory.updatePreview);
+      .addEventListener('keyup', BlockFactory.manualEdit);
   document.getElementById('format')
       .addEventListener('change', BlockFactory.formatChange);
   document.getElementById('language')
@@ -616,18 +639,22 @@ AppController.prototype.onresize = function(event) {
 };
 
 /**
- * Handler for the window's 'onbeforeunload' event. When a user has unsaved
+ * Handler for the window's 'beforeunload' event. When a user has unsaved
  * changes and refreshes or leaves the page, confirm that they want to do so
  * before actually refreshing.
+ * @param {!Event} e beforeunload event.
  */
-AppController.prototype.confirmLeavePage = function() {
+AppController.prototype.confirmLeavePage = function(e) {
+  BlocklyDevTools.Analytics.sendQueued();
   if ((!BlockFactory.isStarterBlock() &&
-      !FactoryUtils.savedBlockChanges(this.blockLibraryController)) ||
-      this.workspaceFactoryController.hasUnsavedChanges()) {
-    // When a string is assigned to the returnValue Event property, a dialog box
-    // appears, asking the users for confirmation to leave the page.
-    return 'You will lose any unsaved changes. Are you sure you want ' +
-        'to exit this page?';
+      !FactoryUtils.savedBlockChanges(blocklyFactory.blockLibraryController)) ||
+      blocklyFactory.workspaceFactoryController.hasUnsavedChanges()) {
+
+    var confirmationMessage = 'You will lose any unsaved changes. ' +
+        'Are you sure you want to exit this page?';
+    BlocklyDevTools.Analytics.onWarning(confirmationMessage);
+    e.returnValue = confirmationMessage;
+    return confirmationMessage;
   }
 };
 
